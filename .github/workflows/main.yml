@@ -42,4 +42,4 @@ jobs:
           pixjs_ota_v${{github.run_number}}.zip
           fw_readme.txt
           fw_update.bat
-```
+
