@@ -85,9 +85,12 @@ def main():
     extract_non_printable_chars()
 
     combined_content = ""
-    for file_name in ["chinese3.txt", "pixjs.txt"]:
-        with open(os.path.join(data_dir, file_name), "r", encoding="utf-8") as file:
-            combined_content += file.read()
+    # 'korean.txt' 파일을 목록에 추가하여 한글 문자도 포함하도록 합니다.
+    for file_name in ["chinese3.txt", "pixjs.txt", "korean.txt"]:
+        file_path = os.path.join(data_dir, file_name)
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as file:
+                combined_content += file.read()
 
     sorted_converted = convert_and_sort(combined_content.splitlines())
     write_to_file(
