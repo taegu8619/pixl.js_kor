@@ -2,8 +2,8 @@ name: pixl.js-fw
 
 on:
   push:
-    branches: [ "main", "master", "develop", "neo_v2"]
-    tags:  ["*"]
+    branches: ["main", "master", "develop", "neo_v2"]
+    tags: ["*"]
   pull_request:
     types: ["opened"]
     branches: ["develop"]
@@ -17,29 +17,32 @@ jobs:
     runs-on: ubuntu-latest
     container: solosky/nrf52-sdk:latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: 'true'
+      - uses: actions/checkout@v4
+        with:
+          submodules: "true"
 
-    - name: Change Owner of Container Working Directory
-      run: chown root:root .
+      - name: Change Owner of Container Working Directory
+        run: chown root:root .
 
-    - name: build firmware
-      # 중요: 'make all' 전에 'make gen'을 먼저 실행하여 폰트와 언어 데이터를 새로 생성합니다.
-      run: cd fw && make -C application/ gen && make all RELEASE=1 APP_VERSION=$GITHUB_RUN_NUMBER BOARD=${{matrix.board}}
+      - name: Install Python dependencies
+        # 이미지 리소스 생성을 위해 Pillow 라이브러리를 설치합니다.
+        run: pip install Pillow
 
-    - name: copy artifact
-      run: mv fw/_build/bootloader.hex . && mv fw/_build/pixljs.hex . && mv fw/_build/pixljs_all.hex . && mv fw/_build/pixjs_ota_v${{github.run_number}}.zip . && mv fw/docs/fw_readme.txt . && mv  fw/scripts/fw_update.bat .
+      - name: build firmware
+        # 'make all' 전에 'make gen'을 먼저 실행하여 폰트와 언어 데이터를 새로 생성합니다.
+        run: cd fw && make -C application/ gen && make all RELEASE=1 APP_VERSION=$GITHUB_RUN_NUMBER BOARD=${{matrix.board}}
 
-    - name: upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: pixljs_fw_${{matrix.board}}
-        path: |
-          bootloader.hex
-          pixljs.hex
-          pixljs_all.hex
-          pixjs_ota_v${{github.run_number}}.zip
-          fw_readme.txt
-          fw_update.bat
+      - name: copy artifact
+        run: mv fw/_build/bootloader.hex . && mv fw/_build/pixljs.hex . && mv fw/_build/pixljs_all.hex . && mv fw/_build/pixjs_ota_v${{github.run_number}}.zip . && mv fw/docs/fw_readme.txt . && mv  fw/scripts/fw_update.bat .
 
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixljs_fw_${{matrix.board}}
+          path: |
+            bootloader.hex
+            pixljs.hex
+            pixljs_all.hex
+            pixjs_ota_v${{github.run_number}}.zip
+            fw_readme.txt
+            fw_update.bat
