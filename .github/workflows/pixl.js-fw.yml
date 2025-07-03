@@ -2,7 +2,8 @@ name: pixl.js-fw
 
 on:
   push:
-    branches: ["main", "develop", "neo_v2"]
+    # main, master 브랜치에 push 할 때도 빌드가 실행되도록 추가합니다.
+    branches: ["main", "master", "develop", "neo_v2"]
     tags: ["*"]
   pull_request:
     types: ["opened"]
@@ -23,10 +24,21 @@ jobs:
 
       - name: Change Owner of Container Working Directory
         run: chown root:root .
+
+      - name: Install Python dependencies
+        # 폰트 및 리소스 생성에 필요한 Pillow 라이브러리를 설치합니다.
+        run: pip install Pillow
+
+      - name: Generate data files
+        # 펌웨어를 빌드하기 전에, 요청하신 스크립트들을 포함한 모든 데이터 생성 스크립트를 먼저 실행합니다.
+        run: make -C fw/application/ gen
+
       - name: build firmware
         run: cd fw && make all RELEASE=1 APP_VERSION=$GITHUB_RUN_NUMBER BOARD=${{matrix.board}}
+
       - name: copy artifact
         run: mv fw/_build/bootloader.hex . && mv fw/_build/pixljs.hex . && mv fw/_build/pixljs_all.hex . && mv fw/_build/pixjs_ota_v${{github.run_number}}.zip . && mv fw/docs/fw_readme.txt . && mv  fw/scripts/fw_update.bat .
+
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
