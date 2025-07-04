@@ -1,18 +1,22 @@
-# download latest amiibo data and merge to amiibo_data.csv
-
+# 먼저 필요한 라이브러리를 설치해야 합니다.
+# 터미널이나 명령 프롬프트에서 아래 명령어를 실행하세요:
+# pip install thefuzz python-levenshtein
 
 from urllib.request import urlopen
 import json
 import os
 import csv
+# --- FUZZY ---: 퍼지 문자열 매칭을 위한 라이브러리 임포트
+from thefuzz import process
 
 # --- 한글 번역 데이터 (전체) 시작 ---
+# (이전 대화의 번역 데이터는 여기에 그대로 포함됩니다)
 amiibo_translation = {
     # Animal Crossing
     "Isabelle": "여울", "Tom Nook": "너굴", "K.K.": "T.K.", "Mabel": "고순이", "Reese": "리사",
     "Cyrus": "리포", "Lottie": "솜이", "Celeste": "부옥", "Blathers": "부엉", "Kicks": "패트릭",
     "Rover": "낯선고양이", "Timmy & Tommy": "콩돌이 & 밤돌이", "Kapp'n": "갑돌", "Resetti": "도루묵씨",
-    "Digby": "켄트", "Celeste": "부옥", "Blathers": "부엉", "Flick": "레온", "C.J.": "저스틴",
+    "Digby": "켄트", "Flick": "레온", "C.J.": "저스틴",
     "Daisy Mae": "무파니", "Orville": "로드리", "Wilbur": "윌버", "Harvey": "파니엘", "Wardell": "너티",
     "Niko": "니코", "Wisp": "깨빈", "Saharah": "사하라", "Label": "라벨", "Sable": "고옥이",
     "Goldie": "카라멜", "Stitches": "패치", "Rosie": "부케", "Marshal": "쭈니", "Fauna": "솔미",
@@ -152,16 +156,42 @@ class Link:
         self.note_cn = None
         self.note_it = None
 
+# --- FUZZY ---: 퍼지 매칭을 위한 헬퍼 함수 추가
+def find_best_match(name_to_match, choices_dict, threshold=90):
+    """
+    주어진 이름과 가장 유사한 항목을 번역 딕셔너리에서 찾습니다.
+    :param name_to_match: 매칭할 이름 (e.g., API에서 받은 이름)
+    :param choices_dict: 번역 데이터 딕셔너리 (e.g., amiibo_translation)
+    :param threshold: 일치 판정을 위한 최소 유사도 점수 (0-100)
+    :return: 매칭된 번역 이름 또는 None
+    """
+    # 딕셔너리의 키(영문명) 중에서 가장 유사한 것을 찾음
+    best_match = process.extractOne(name_to_match, choices_dict.keys())
+    
+    if best_match and best_match[1] >= threshold:
+        # 유사도 점수가 임계값 이상이면, 해당 키의 값(한글명)을 반환
+        return choices_dict[best_match[0]]
+    else:
+        # 적절한 매치를 찾지 못한 경우
+        if best_match:
+             print(f"Warning: Low similarity for '{name_to_match}'. Best guess: '{best_match[0]}' ({best_match[1]}%). Using original name.")
+        return None
 
-
-def get_prorject_directory():
-    return os.path.abspath(os.path.dirname(__file__)+"/../")
+def get_project_directory():
+    # '__file__'이 정의되지 않은 환경(예: Jupyter Notebook)을 위한 예외 처리
+    try:
+        # 스크립트 파일의 상위 디렉토리를 반환
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    except NameError:
+        # 스크립트로 실행되지 않을 경우 현재 작업 디렉토리를 반환
+        return os.path.abspath("./")
 
 
 def fetch_amiibo_from_api():
+    """Amiibo API에서 데이터를 가져옵니다."""
     conn = urlopen("https://www.amiiboapi.com/api/amiibo/")
     body = json.loads(conn.read())
-    amiibos = list()
+    amiibos = []
     for ami in body["amiibo"]: 
         amiibo = Amiibo()
         amiibo.id = ami["head"] + ami["tail"]
@@ -170,171 +200,196 @@ def fetch_amiibo_from_api():
     return amiibos
 
 
-def read_amiibo_from_csv():
-    csv_file = get_prorject_directory() + "/data/amiidb_amiibo.csv"
+def read_amiibo_from_csv(proj_dir):
+    """로컬 CSV 파일에서 Amiibo 데이터를 읽습니다."""
+    csv_file = os.path.join(proj_dir, "data", "amiidb_amiibo.csv")
     if not os.path.exists(csv_file):
-        return list()
-    amiibos = list()
+        return []
+    amiibos = []
     with open(csv_file, "r", encoding="utf8") as f:
         for r in csv.reader(f):
             amiibo = Amiibo()
             amiibo.id = r[0]
             amiibo.name_en = r[1]
-            amiibo.name_cn = r[2]
+            amiibo.name_cn = r[2] if len(r) > 2 else "" # 빈 중국어 이름 처리
             amiibos.append(amiibo)
-    
     return amiibos
 
 
-def write_amiibo_to_csv(amiibos):
-    csv_file = get_prorject_directory() + "/data/amiidb_amiibo.csv"
+def write_amiibo_to_csv(amiibos, proj_dir):
+    """Amiibo 데이터를 CSV 파일에 씁니다."""
+    data_dir = os.path.join(proj_dir, "data")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    csv_file = os.path.join(data_dir, "amiidb_amiibo.csv")
     with open(csv_file, "w", encoding="utf8", newline="") as f:
         w = csv.writer(f)
         for amiibo in amiibos:
-            r = list()
-            r.append(amiibo.id)
-            r.append(amiibo.name_en)
-            r.append(amiibo.name_cn)
+            r = [amiibo.id, amiibo.name_en, amiibo.name_cn]
             w.writerow(r)
 
 
 def merge_amiibo(amiibos_csv, amiibos_api):
-    amiibos_merged = dict()
-    for amiibo in amiibos_csv:
-        amiibos_merged[amiibo.id] = amiibo
+    """API 데이터와 로컬 CSV 데이터를 병합합니다."""
+    amiibos_merged = {amiibo.id: amiibo for amiibo in amiibos_csv}
 
     for amiibo in amiibos_api:
-        if amiibos_merged.get(amiibo.id) == None:
+        if amiibo.id not in amiibos_merged:
+            amiibo.name_cn = "" # 새 amiibo의 name_cn을 빈 문자열로 초기화
             amiibos_merged[amiibo.id] = amiibo
-            print("Found new amiibo: [%s] %s " % (amiibo.id, amiibo.name_en))
-    amiibos = list()
-    for k in amiibos_merged:
-        amiibos.append(amiibos_merged[k])
-    return amiibos
+            print(f"Found new amiibo: [{amiibo.id}] {amiibo.name_en}")
+            
+    # ID 순으로 정렬하여 일관성 유지
+    return [amiibos_merged[key] for key in sorted(amiibos_merged.keys())]
 
-def gen_amiibo_data_c_file(amiibos):
-    c_file = get_prorject_directory() + "/application/src/amiidb/db_amiibo.c"
-    with open(c_file, "w+", newline="\n", encoding="utf8") as f:
-        f.write('/* This file is auto-generated by amiibo_db_gen.py. Do not edit directly. */\n')  
-        f.write('#include "db_header.h"\n')
+
+def gen_amiibo_data_c_file(amiibos, proj_dir):
+    """Amiibo 데이터를 위한 C 소스 파일을 생성합니다."""
+    c_dir = os.path.join(proj_dir, "application", "src", "amiidb")
+    if not os.path.exists(c_dir):
+        os.makedirs(c_dir)
+    c_file = os.path.join(c_dir, "db_amiibo.c")
+
+    with open(c_file, "w", newline="\n", encoding="utf8") as f:
+        f.write('/* This file is auto-generated by script. Do not edit directly. */\n')  
+        f.write('#include "db_header.h"\n\n')
         f.write('const db_amiibo_t amiibo_list[] = {\n')
         for amiibo in amiibos:
-            # --- 번역 코드 추가 ---
-            korean_name = amiibo_translation.get(amiibo.name_en, amiibo.name_en)
-            # --- 번역 코드 추가 끝 ---
-            f.write('{0x%s, 0x%s, "%s", "%s"}, \n' % 
-                    (amiibo.id[0:8], amiibo.id[8:16], korean_name, 
-                    amiibo.name_cn)) 
-        f.write("{0, 0, 0, 0}\n")
+            # --- FUZZY ---: 퍼지 매칭 함수를 사용하여 한국어 이름 찾기
+            korean_name = find_best_match(amiibo.name_en, amiibo_translation)
+            if not korean_name:
+                # 매칭 실패 시 영어 이름을 그대로 사용
+                korean_name = amiibo.name_en
+            
+            # C 코드에서 문자열 내의 " 문자를 이스케이프 처리
+            korean_name_escaped = korean_name.replace('"', '\\"')
+            name_cn_escaped = amiibo.name_cn.replace('"', '\\"') if amiibo.name_cn else ""
+
+            f.write(f'    {{0x{amiibo.id[0:8]}, 0x{amiibo.id[8:16]}, "{korean_name_escaped}", "{name_cn_escaped}"}}, \n')
+        f.write("    {0, 0, 0, 0}\n")
         f.write("};\n")
 
-
-def read_games_from_csv():
-    csv_file = get_prorject_directory() + "/data/amiidb_game.csv"
+def read_games_from_csv(proj_dir):
+    """게임 목록을 CSV에서 읽습니다."""
+    csv_file = os.path.join(proj_dir, "data", "amiidb_game.csv")
     if not os.path.exists(csv_file):
-        return list()
-    games = list()
+        return []
+    games = []
     with open(csv_file, "r", encoding="utf8") as f:
         for r in csv.reader(f):
             game = Game()
-            game.id = r[0]
-            game.parent_id = r[1]
-            game.name_en = r[2]
-            game.name_cn = r[3] 
-            game.order = r[4]
+            game.id, game.parent_id, game.name_en, game.name_cn, game.order = r
             games.append(game)
     return games
 
-
-def read_link_from_csv():
-    csv_file = get_prorject_directory() + "/data/amiidb_link.csv"
+def read_link_from_csv(proj_dir):
+    """게임-Amiibo 연결 정보를 CSV에서 읽습니다."""
+    csv_file = os.path.join(proj_dir, "data", "amiidb_link.csv")
     if not os.path.exists(csv_file):
-        return list()
-    links = list()
+        return []
+    links = []
     with open(csv_file, "r", encoding="utf8") as f:
         for r in csv.reader(f):
-                link = Link()
-                link.game_id = r[0]
-                link.amiibo_id = r[1]
-                link.note_en = r[2]
-                link.note_cn = r[3]
-                link.note_it = r[4]
-                links.append(link)
+            link = Link()
+            link.game_id, link.amiibo_id, link.note_en, link.note_cn, link.note_it = r
+            links.append(link)
     return links
 
-
 def count_game_links(games, links, game_id):
-
-    count = 0
-    for link in links:
-        if link.game_id == game_id:
-            count = count + 1
-    for game in games:
-        if game.parent_id == game_id:
-            count = count + count_game_links(games, links, game.id)
-
+    """특정 게임 및 그 하위 게임에 연결된 Amiibo 수를 계산합니다."""
+    count = sum(1 for link in links if link.game_id == game_id)
+    count += sum(count_game_links(games, links, game.id) for game in games if game.parent_id == game_id)
     return count
 
+def gen_amiibo_link_c_file(links, proj_dir):
+    """게임-Amiibo 연결 정보를 위한 C 소스 파일을 생성합니다."""
+    c_dir = os.path.join(proj_dir, "application", "src", "amiidb")
+    c_file = os.path.join(c_dir, "db_link.c")
 
-def gen_amiibo_link_c_file(links):
-    c_file = get_prorject_directory() + "/application/src/amiidb/db_link.c"
-    with open(c_file, "w+", newline="\n", encoding="utf8") as f:
-        f.write('/* This file is auto-generated by amiibo_db_gen.py. Do not edit directly. */\n')  
-        f.write('#include "db_header.h"\n')
+    with open(c_file, "w", newline="\n", encoding="utf8") as f:
+        f.write('/* This file is auto-generated by script. Do not edit directly. */\n')  
+        f.write('#include "db_header.h"\n\n')
         f.write('const db_link_t link_list[] = {\n')
         for link in links:
-            f.write('{%s, 0x%s, 0x%s, "%s", "%s", "%s"}, \n' % 
-                    (link.game_id, link.amiibo_id[0:8], link.amiibo_id[8:16], link.note_en, 
-                    link.note_cn, link.note_it))  
-        f.write("{0, 0, 0, 0, 0, 0}\n")
+            note_en_escaped = link.note_en.replace('"', '\\"')
+            note_cn_escaped = link.note_cn.replace('"', '\\"')
+            note_it_escaped = link.note_it.replace('"', '\\"')
+            f.write(f'    {{{link.game_id}, 0x{link.amiibo_id[0:8]}, 0x{link.amiibo_id[8:16]}, "{note_en_escaped}", "{note_cn_escaped}", "{note_it_escaped}"}}, \n')
+        f.write("    {0, 0, 0, 0, 0, 0}\n")
         f.write("};\n")
 
-def gen_amiibo_game_c_file(games, links):
-    c_file = get_prorject_directory() + "/application/src/amiidb/db_game.c"
-    with open(c_file, "w+", newline="\n", encoding="utf8") as f:
-        f.write('/* This file is auto-generated by amiibo_db_gen.py. Do not edit directly. */\n')  
-        f.write('#include "db_header.h"\n')
+def gen_amiibo_game_c_file(games, links, proj_dir):
+    """게임 정보를 위한 C 소스 파일을 생성합니다."""
+    c_dir = os.path.join(proj_dir, "application", "src", "amiidb")
+    c_file = os.path.join(c_dir, "db_game.c")
+
+    with open(c_file, "w", newline="\n", encoding="utf8") as f:
+        f.write('/* This file is auto-generated by script. Do not edit directly. */\n')  
+        f.write('#include "db_header.h"\n\n')
         f.write('const db_game_t game_list[] = {\n')
         for game in games:
-            # --- 번역 코드 추가 ---
-            korean_name = gameseries_translation.get(game.name_en, game.name_en)
-            # --- 번역 코드 추가 끝 ---
-            f.write('{%s, %s, "%s", "%s", %s, %s}, \n' % 
-                    (game.id, game.parent_id, korean_name, 
-                    game.name_cn, game.order, count_game_links( games, links, game.id)))
-        f.write("{0, 0, 0, 0, 0}\n")
-        f.write("};\n")      
-    
+            # --- FUZZY ---: 게임 시리즈 이름에도 퍼지 매칭 적용
+            korean_name = find_best_match(game.name_en, gameseries_translation)
+            if not korean_name:
+                korean_name = game.name_en
+            
+            korean_name_escaped = korean_name.replace('"', '\\"')
+            name_cn_escaped = game.name_cn.replace('"', '\\"')
+
+            link_count = count_game_links(games, links, game.id)
+            f.write(f'    {{{game.id}, {game.parent_id}, "{korean_name_escaped}", "{name_cn_escaped}", {game.order}, {link_count}}}, \n')
+        f.write("    {0, 0, 0, 0, 0, 0}\n")
+        f.write("};\n")
+
 def gen_other_link(amiibos, links):
-    linked_amiibo_ids = set()
-    new_link = list()
-    for link in links:
-        linked_amiibo_ids.add(link.amiibo_id)
+    """어디에도 분류되지 않은 Amiibo를 '기타' 카테고리에 추가합니다."""
+    linked_amiibo_ids = {link.amiibo_id for link in links}
+    new_links = []
+    
     for amiibo in amiibos:
         if amiibo.id not in linked_amiibo_ids:
             link = Link()
-            link.game_id = "255" # other
+            link.game_id = "255" # '기타' 카테고리 ID
             link.amiibo_id = amiibo.id
-            link.note_en = ""
-            link.note_cn = ""
-            link.note_it = ""
-            new_link.append(link)
-            print("uncategorized amiibo (%s, %s)" % (link.amiibo_id, amiibo.name_en))
-    if len(new_link) > 0:
-        print("add %d uncategoried amiibo to other." %(len(new_link)))
-    for link in new_link:
-        links.append(link)
+            link.note_en, link.note_cn, link.note_it = "", "", ""
+            new_links.append(link)
+            print(f"Uncategorized amiibo: ({amiibo.id}, {amiibo.name_en})")
+            
+    if new_links:
+        print(f"Adding {len(new_links)} uncategorized amiibo(s) to 'Other'.")
+        links.extend(new_links)
     return links
 
+# --- Main Execution ---
+if __name__ == "__main__":
+    proj_dir = get_project_directory()
+    print(f"Project directory set to: {proj_dir}")
 
-amiibos_api = fetch_amiibo_from_api()
-amiibos_csv = read_amiibo_from_csv()
-amiibos_merged = merge_amiibo(amiibos_csv, amiibos_api)
-write_amiibo_to_csv(amiibos_merged)
-print("Found %d amiibo records." % len(amiibos_merged))
-gen_amiibo_data_c_file(amiibos_merged)
-games = read_games_from_csv()
-links = read_link_from_csv()
-links = gen_other_link(amiibos_merged, links)
-gen_amiibo_game_c_file(games, links)
-gen_amiibo_link_c_file(links)
+    print("\nFetching latest amiibo data from API...")
+    amiibos_api = fetch_amiibo_from_api()
+
+    print("Reading existing amiibo data from CSV...")
+    amiibos_csv = read_amiibo_from_csv(proj_dir)
+
+    print("Merging API data with local data...")
+    amiibos_merged = merge_amiibo(amiibos_csv, amiibos_api)
+
+    print("Writing merged data back to CSV...")
+    write_amiibo_to_csv(amiibos_merged, proj_dir)
+    print(f"Found {len(amiibos_merged)} total amiibo records.")
+    
+    print("\nGenerating C source file for amiibos (db_amiibo.c)...")
+    gen_amiibo_data_c_file(amiibos_merged, proj_dir)
+
+    print("Reading game and link data...")
+    games = read_games_from_csv(proj_dir)
+    links = read_link_from_csv(proj_dir)
+    links = gen_other_link(amiibos_merged, links)
+    
+    print("\nGenerating C source file for games (db_game.c)...")
+    gen_amiibo_game_c_file(games, links, proj_dir)
+
+    print("Generating C source file for links (db_link.c)...")
+    gen_amiibo_link_c_file(links, proj_dir)
+    
+    print("\n✅ All tasks completed successfully!")
