@@ -6,7 +6,7 @@ import json
 import os
 import csv
 
---- 한글 번역 데이터 (전체) 시작 ---
+# --- 한글 번역 데이터 (전체) 시작 ---
 amiibo_translation = {
     # 슈퍼 마리오 시리즈
     "Mario": "마리오", "Luigi": "루이지", "Peach": "피치공주", "Bowser": "쿠파", "Dr. Mario": "닥터 마리오",
