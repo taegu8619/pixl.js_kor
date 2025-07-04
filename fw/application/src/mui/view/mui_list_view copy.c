@@ -14,30 +14,16 @@ static uint16_t mui_list_view_get_utf8_width(const char *str) { return u8g2_GetU
 static void mui_list_view_start_text_anim(mui_list_view_t *p_view) {
     if (mui_list_view_anim_enabled()) {
         mui_list_item_t *p_item = mui_list_item_array_get(p_view->items, p_view->focus_index);
-        // p_item이 NULL이 아닌지 확인
-        if (!p_item) {
-            mui_anim_stop(&p_view->text_anim);
-            return;
-        }
         uint32_t focus_text_width = mui_list_view_get_utf8_width(string_get_cstr(p_item->text));
-
-        // 부가 텍스트 너비는 따로 계산 (합치지 않음)
-        // focus_text_width += mui_list_view_get_utf8_width(string_get_cstr(p_item->sub_text));
-
-        // 화면 너비보다 텍스트가 길 때만 애니메이션을 실행합니다.
-        if (focus_text_width > (p_view->canvas_width - 13)) {
+        focus_text_width += mui_list_view_get_utf8_width(string_get_cstr(p_item->sub_text));
+        if (focus_text_width > p_view->canvas_width - 13) {
             p_view->text_offset = 0;
-            // 스크롤 될 전체 너비 (텍스트 길이 + 반복을 위한 간격)
-            int32_t total_scroll_width = focus_text_width + 30; // 30은 텍스트 반복 시 간격
-
-            // 애니메이션 시간과 값 설정
-            mui_anim_set_time(&p_view->text_anim, total_scroll_width * 50); // 속도 조절 (값이 클수록 느려짐)
-            mui_anim_set_values(&p_view->text_anim, 0, -total_scroll_width);
-            mui_anim_set_auto_restart(&p_view->text_anim, true); // 애니메이션 자동 반복
-            mui_anim_set_start_delay(&p_view->text_anim, 1000);  // 1초 후 시작
+            int32_t overflowed_width = focus_text_width - p_view->canvas_width + 20;
+            mui_anim_set_time(&p_view->text_anim, overflowed_width * 100);
+            mui_anim_set_values(&p_view->text_anim, 0, -overflowed_width);
+            mui_anim_set_auto_restart(&p_view->text_anim, true);
             mui_anim_start(&p_view->text_anim);
         } else {
-            // 텍스트가 짧으면 애니메이션을 멈추고 오프셋을 초기화합니다.
             p_view->text_offset = 0;
             mui_anim_stop(&p_view->text_anim);
         }
@@ -81,75 +67,54 @@ static void mui_list_view_on_draw(mui_view_t *p_view, mui_canvas_t *p_canvas) {
         offset_y += p_mui_list_view->anim_value;
     }
     uint32_t index = 0;
-    // uint32_t focus_y = 0; // 사용되지 않는 변수
+    uint32_t focus_y = 0;
     mui_rect_t clip_win_prev;
     mui_rect_t clip_win_cur;
     while (!mui_list_item_array_end_p(it)) {
         mui_list_item_t *item = mui_list_item_array_ref(it);
         int32_t y = index * LIST_ITEM_HEIGHT - offset_y;
-
+        int32_t text_offset = index == p_mui_list_view->focus_index ? p_mui_list_view->text_offset : 0;
         if (y >= -LIST_ITEM_HEIGHT && y <= mui_canvas_get_height(p_canvas)) { // visible object
             uint32_t actual_y = index * p_mui_list_view->item_gap - offset_y;
-
-            // 아이콘 그리기
             mui_canvas_set_font(p_canvas, u8g2_font_siji_t_6x10);
             mui_canvas_draw_glyph(p_canvas, 0, actual_y + 10, item->icon);
             mui_canvas_set_font(p_canvas, u8g2_font_wqy12_t_gb2312a);
+            mui_canvas_get_clip_window(p_canvas, &clip_win_prev);
+            clip_win_cur.x = 13;
+            clip_win_cur.y = actual_y;
+            clip_win_cur.h = LIST_ITEM_HEIGHT, clip_win_cur.w = mui_canvas_get_width(p_canvas);
+            mui_canvas_set_clip_window(p_canvas, &clip_win_cur);
 
-            // --- 포커스된 항목 그리기 로직 수정 ---
-            if (index == p_mui_list_view->focus_index) {
-                // 선택 상자 그리기
-                mui_canvas_set_draw_color(p_canvas, 2); // 반전 색상
-                mui_canvas_draw_box(p_canvas, 0, actual_y, mui_canvas_get_width(p_canvas), LIST_ITEM_HEIGHT - 1);
-                mui_canvas_set_draw_color(p_canvas, 1); // 원래 색상
-
-                // 클리핑 영역 설정 (아이콘 영역 제외)
-                mui_canvas_get_clip_window(p_canvas, &clip_win_prev);
-                clip_win_cur.x = 13;
-                clip_win_cur.y = actual_y;
-                clip_win_cur.h = LIST_ITEM_HEIGHT;
-                clip_win_cur.w = mui_canvas_get_width(p_canvas) - 13;
-
-                // 부가 텍스트가 있으면 너비 계산에서 제외
-                if (string_size(item->sub_text) > 0) {
-                    uint8_t sub_text_width = mui_canvas_get_utf8_width(p_canvas, string_get_cstr(item->sub_text));
-                    clip_win_cur.w -= (sub_text_width + 5); // 여백 포함
-                }
-                mui_canvas_set_clip_window(p_canvas, &clip_win_cur);
-
-                uint32_t text_width = mui_list_view_get_utf8_width(string_get_cstr(item->text));
-
-                // 마퀴 효과 적용
-                if (text_width > clip_win_cur.w) {
-                    const int gap_pixels = 30;
-                    mui_canvas_draw_utf8(p_canvas, 13 + p_mui_list_view->text_offset, actual_y + 10,
-                                         string_get_cstr(item->text));
-                    mui_canvas_draw_utf8(p_canvas, 13 + p_mui_list_view->text_offset + text_width + gap_pixels,
-                                         actual_y + 10, string_get_cstr(item->text));
-                } else {
-                    mui_canvas_draw_utf8(p_canvas, 13, actual_y + 10, string_get_cstr(item->text));
-                }
-
-                // 클리핑 영역 복원
-                mui_canvas_set_clip_window(p_canvas, &clip_win_prev);
-            } else {
-                // 선택되지 않은 항목 그리기
-                mui_canvas_draw_utf8_clip(p_canvas, 13, actual_y + 10, string_get_cstr(item->text));
-            }
-
-            // 부가 텍스트 그리기 (기존 로직 유지)
+            uint32_t focus_text_width =
+                mui_canvas_draw_utf8_clip(p_canvas, 13 + text_offset, actual_y + 10, string_get_cstr(item->text));
+            // sub text
             if (string_size(item->sub_text) > 0) {
                 uint8_t w = mui_canvas_get_utf8_width(p_canvas, string_get_cstr(item->sub_text));
-                mui_canvas_draw_utf8(p_canvas, mui_canvas_get_width(p_canvas) - w - 5, actual_y + 10,
-                                     string_get_cstr(item->sub_text));
+                if (focus_text_width + w > p_mui_list_view->canvas_width - 13) {
+                    mui_canvas_draw_utf8_clip(p_canvas, 13 + text_offset + focus_text_width, actual_y + 10,
+                                              string_get_cstr(item->sub_text));
+                } else {
+                    mui_canvas_draw_utf8(p_canvas, mui_canvas_get_width(p_canvas) - w - 5, actual_y + 10,
+                                         string_get_cstr(item->sub_text));
+                }
             }
+
+            mui_canvas_set_clip_window(p_canvas, &clip_win_prev);
         }
 
         mui_list_item_array_next(it);
         index++;
     }
+    int32_t focus_yi = p_mui_list_view->focus_index * LIST_ITEM_HEIGHT - offset_y;
+    if (p_mui_list_view->anim_type == LIST_ANIM_FOCUS) {
+        focus_yi = focus_yi + p_mui_list_view->anim_value;
+    }
+    focus_yi = LV_MIN(LV_MAX(focus_yi, 0), mui_canvas_get_height(p_canvas) - LIST_ITEM_HEIGHT);
+    uint32_t focus_h = 12;
+    mui_canvas_set_draw_color(p_canvas, 2);
+    mui_canvas_draw_box(p_canvas, 0, focus_yi, mui_canvas_get_width(p_canvas), focus_h);
+    mui_canvas_set_draw_color(p_canvas, 1);
 
-    // 스크롤바 그리기
     mui_element_scrollbar(p_canvas, p_mui_list_view->focus_index, mui_list_item_array_size(p_mui_list_view->items));
 
     if (!p_mui_list_view->first_draw) {
@@ -193,8 +158,7 @@ static void mui_list_view_on_input(mui_view_t *p_view, mui_input_event_t *event)
                 if (focus_offset >
                     p_mui_list_view->scroll_offset + p_mui_list_view->canvas_height) { // scroll to bottom
                     uint32_t cur_scroll_offset = p_mui_list_view->scroll_offset;
-                    p_mui_list_view->scroll_offset =
-                        (p_mui_list_view->focus_index - max_item_num + 1) * LIST_ITEM_HEIGHT;
+                    p_mui_list_view->scroll_offset = (p_mui_list_view->focus_index - max_item_num) * LIST_ITEM_HEIGHT;
                     uint32_t diff_scroll_offset = p_mui_list_view->scroll_offset - cur_scroll_offset;
                     if (mui_list_view_anim_enabled()) {
                         p_mui_list_view->anim_type = LIST_ANIM_SCROLL;
@@ -221,9 +185,7 @@ static void mui_list_view_on_input(mui_view_t *p_view, mui_input_event_t *event)
             if (p_mui_list_view->focus_index < mui_list_item_array_size(p_mui_list_view->items) - 1) {
                 p_mui_list_view->focus_index++;
                 uint16_t focus_offset = p_mui_list_view->focus_index * LIST_ITEM_HEIGHT;
-                if (focus_offset >=
-                    p_mui_list_view->scroll_offset +
-                        (p_mui_list_view->canvas_height / LIST_ITEM_HEIGHT) * LIST_ITEM_HEIGHT) { // scroll down
+                if (focus_offset > p_mui_list_view->scroll_offset + p_mui_list_view->canvas_height) { // scroll down
                     p_mui_list_view->scroll_offset += LIST_ITEM_HEIGHT;
 
                     if (mui_list_view_anim_enabled()) {
@@ -233,6 +195,7 @@ static void mui_list_view_on_input(mui_view_t *p_view, mui_input_event_t *event)
                         mui_anim_set_values(&p_mui_list_view->anim, -LIST_ITEM_HEIGHT, 0);
                         mui_anim_start(&p_mui_list_view->anim);
                     }
+                    // todo scroll anim
                 } else {
                     if (mui_list_view_anim_enabled()) {
                         p_mui_list_view->anim_value = -LIST_ITEM_HEIGHT;
