@@ -1,5 +1,5 @@
 #include "mui_list_view.h"
-#include "nrf_log.hh"
+#include "nrf_log.h"
 #include "settings.h"
 
 #define LIST_ITEM_HEIGHT 13
